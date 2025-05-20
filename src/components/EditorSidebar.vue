@@ -12,7 +12,7 @@
       <button @click="download">Скачать PNG</button>
     </div>
 
-    <button class="scale" @click="openScaleDialog" :disabled="!imageMeta">
+    <button class="scale" @click="openScaleDialog(imageMeta)" :disabled="!imageMeta">
       Масштабировать
     </button>
     <button class="close" @click="$emit('close')">Закрыть</button>
@@ -51,6 +51,7 @@ export default {
   methods: {
     onFileChange(e) {
       this.file = e.target.files[0];
+      if (this.file) this.loadImage();
     },
     loadImage() {
       const file = this.file;
@@ -64,12 +65,12 @@ export default {
         reader.onload = (e) => {
           const parsed = parseGB7(e.target.result);
           const meta = renderGB7ToCanvas(canvas, parsed);
-          this.imageMeta = meta;
+          this.imageMeta = { ...meta };
         };
         reader.readAsArrayBuffer(file);
       } else {
         renderImageToCanvas(canvas, file, (meta) => {
-          this.imageMeta = meta;
+          this.imageMeta = { ...meta };
         });
       }
 

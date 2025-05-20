@@ -1,12 +1,26 @@
 <template>
   <div class="canvas-wrapper">
-    <canvas ref="canvasRef" class="canvas" />
+    <div
+      class="canvas-container"
+      :style="{
+        transform: `scale(${zoom / 100})`,
+        transformOrigin: 'top left',
+      }"
+    >
+      <canvas ref="canvasRef" class="canvas" />
+    </div>
   </div>
 </template>
 
 <script>
 export default {
   name: "ImageCanvas",
+  props: {
+    zoom: {
+      type: Number,
+      default: 100,
+    },
+  },
   methods: {
     getCanvas() {
       return this.$refs.canvasRef;
@@ -20,20 +34,19 @@ export default {
   position: absolute;
   inset: 0;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  justify-content: flex-start;
+  align-items: flex-start;
   padding: 50px;
   overflow: auto;
   background: #f0f0f0;
 }
 
+.canvas-container {
+  display: inline-block;
+}
+
 .canvas {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  border-radius: 6px;
   display: block;
-  max-width: 100%;
-  max-height: 100%;
-  height: auto;
-  image-rendering: pixelated; /* чтобы ближайший сосед работал визуально */
+  image-rendering: pixelated;
 }
 </style>

@@ -5,9 +5,7 @@
 
       <div class="info">
         <p>
-          Исходный размер: {{ originalWidth }} × {{ originalHeight }} px ({{
-            originalMP
-          }}
+          Исходный размер: {{ originalWidth }} × {{ originalHeight }} px ({{ originalMP }}
           Мп)
         </p>
         <p>Новый размер: {{ scaledWidth }} × {{ scaledHeight }} px ({{ scaledMP }} Мп)</p>
@@ -34,10 +32,11 @@
           Ширина:
           <input
             type="number"
-            min="1"
             :max="maxPx"
+            min="1"
             v-model.number="widthPx"
             @input="onWidthChange"
+            @focus="activeInput = 'width'"
           />
         </label>
 
@@ -45,11 +44,12 @@
           Высота:
           <input
             type="number"
-            min="1"
             :max="maxPx"
+            min="1"
             v-model.number="heightPx"
             @input="onHeightChange"
-            :disabled="keepRatio"
+            @focus="activeInput = 'height'"
+            :disabled="false"
           />
         </label>
 
@@ -61,7 +61,7 @@
 
       <label>
         Интерполяция:
-        <select v-model="algorithm" title="Билинейная — плавно, Ближайший — резче">
+        <select v-model="algorithm">
           <option value="bilinear">Билинейная</option>
           <option value="nearest">Ближайший сосед</option>
         </select>
@@ -74,7 +74,6 @@
     </form>
   </dialog>
 </template>
-
 <script>
 import { scaleImage } from "../utils/imageScaler";
 
@@ -92,6 +91,7 @@ export default {
       widthPx: 1,
       heightPx: 1,
       keepRatio: true,
+      activeInput: "width",
     };
   },
   computed: {
@@ -118,7 +118,7 @@ export default {
       return ((this.scaledWidth * this.scaledHeight) / 1_000_000).toFixed(2);
     },
     maxPx() {
-      return 10000; // ограничение на ручной ввод пикселей
+      return 10000;
     },
   },
   methods: {
@@ -128,6 +128,7 @@ export default {
       this.widthPx = this.originalWidth;
       this.heightPx = this.originalHeight;
       this.keepRatio = true;
+      this.activeInput = "width";
       this.$refs.dialogRef.showModal();
     },
     closeDialog() {
@@ -136,9 +137,17 @@ export default {
     applyScale() {
       const canvas = this.getCanvas();
       scaleImage(canvas, this.scaledWidth, this.scaledHeight, this.algorithm);
+      this.$emit("apply-scale", {
+        width: this.scaledWidth,
+        height: this.scaledHeight,
+        grayscale7Bit: false,
+        hasAlphaMask: false,
+        alphaChannelDetected: true,
+      });
       this.closeDialog();
     },
     onWidthChange() {
+      this.activeInput = "width";
       if (this.keepRatio) {
         this.heightPx = Math.round(
           (this.widthPx * this.originalHeight) / this.originalWidth
@@ -146,6 +155,7 @@ export default {
       }
     },
     onHeightChange() {
+      this.activeInput = "height";
       if (this.keepRatio) {
         this.widthPx = Math.round(
           (this.heightPx * this.originalWidth) / this.originalHeight
