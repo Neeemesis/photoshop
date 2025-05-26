@@ -402,7 +402,7 @@ export default {
   z-index: 999;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 2px;
   font-family: "Segoe UI", Roboto, sans-serif;
   border-left: 1px solid #ddd;
 }
