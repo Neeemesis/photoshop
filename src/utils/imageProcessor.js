@@ -8,10 +8,15 @@ export function parseGB7(buffer) {
   return { width, height, hasAlphaMask, pixels };
 }
 
-export function renderGB7ToCanvas(canvas, gb7Data) {
-  const { width, height, hasAlphaMask, pixels } = gb7Data;
-  const ctx = canvas.getContext("2d");
+export function renderGB7ToCanvas(canvas, parsed) {
+  const { width, height, pixels } = parsed;
+  let hasAlphaMask = false;
+  if (!width || !height || width <= 0 || height <= 0) {
+    console.error("Некорректный размер GB7:", width, height);
+    return { width: 0, height: 0 };
+  }
 
+  const ctx = canvas.getContext("2d");
   canvas.width = width;
   canvas.height = height;
 

@@ -20,37 +20,38 @@
       </label>
 
       <div v-if="mode === 'percent'">
-        <label>
-          Масштаб:
-          <input type="range" min="12" max="300" step="1" v-model.number="scalePercent" />
-          <span>{{ scalePercent }}%</span>
-        </label>
+        <div class="px-inputs">
+          <label>
+            Ширина (%):
+            <input type="number" min="1" max="300" v-model.number="widthPercent" @input="onWidthPercentChange"
+              @focus="activeInput = 'width'" />
+          </label>
+
+          <label>
+            Высота (%):
+            <input type="number" min="1" max="300" v-model.number="heightPercent" @input="onHeightPercentChange"
+              @focus="activeInput = 'height'" />
+          </label>
+
+          <label class="checkbox">
+            <input type="checkbox" v-model="keepRatio" />
+            Сохранять пропорции
+          </label>
+        </div>
       </div>
+
 
       <div v-else class="px-inputs">
         <label>
           Ширина:
-          <input
-            type="number"
-            :max="maxPx"
-            min="1"
-            v-model.number="widthPx"
-            @input="onWidthChange"
-            @focus="activeInput = 'width'"
-          />
+          <input type="number" :max="maxPx" min="1" v-model.number="widthPx" @input="onWidthChange"
+            @focus="activeInput = 'width'" />
         </label>
 
         <label>
           Высота:
-          <input
-            type="number"
-            :max="maxPx"
-            min="1"
-            v-model.number="heightPx"
-            @input="onHeightChange"
-            @focus="activeInput = 'height'"
-            :disabled="false"
-          />
+          <input type="number" :max="maxPx" min="1" v-model.number="heightPx" @input="onHeightChange"
+            @focus="activeInput = 'height'" :disabled="false" />
         </label>
 
         <label class="checkbox">
@@ -86,6 +87,8 @@ export default {
   data() {
     return {
       mode: "percent",
+      widthPercent: 100,
+      heightPercent: 100,
       scalePercent: 100,
       algorithm: "bilinear",
       widthPx: 1,
@@ -103,12 +106,12 @@ export default {
     },
     scaledWidth() {
       return this.mode === "percent"
-        ? Math.round((this.originalWidth * this.scalePercent) / 100)
+        ? Math.round((this.originalWidth * this.widthPercent) / 100)
         : this.widthPx;
     },
     scaledHeight() {
       return this.mode === "percent"
-        ? Math.round((this.originalHeight * this.scalePercent) / 100)
+        ? Math.round((this.originalHeight * this.heightPercent) / 100)
         : this.heightPx;
     },
     originalMP() {
@@ -123,14 +126,16 @@ export default {
   },
   methods: {
     openDialog() {
-      this.scalePercent = 100;
       this.mode = "percent";
       this.widthPx = this.originalWidth;
       this.heightPx = this.originalHeight;
+      this.widthPercent = 100;
+      this.heightPercent = 100;
       this.keepRatio = true;
       this.activeInput = "width";
       this.$refs.dialogRef.showModal();
     },
+
     closeDialog() {
       this.$refs.dialogRef.close();
     },
@@ -159,6 +164,22 @@ export default {
       if (this.keepRatio) {
         this.widthPx = Math.round(
           (this.heightPx * this.originalWidth) / this.originalHeight
+        );
+      }
+    },
+    onWidthPercentChange() {
+      this.activeInput = "width";
+      if (this.keepRatio) {
+        this.heightPercent = Math.round(
+          (this.widthPercent * this.originalHeight) / this.originalWidth
+        );
+      }
+    },
+    onHeightPercentChange() {
+      this.activeInput = "height";
+      if (this.keepRatio) {
+        this.widthPercent = Math.round(
+          (this.heightPercent * this.originalWidth) / this.originalHeight
         );
       }
     },
@@ -270,4 +291,5 @@ button[type="button"] {
 button[type="button"]:hover {
   background: #cfcfcf;
 }
+
 </style>
