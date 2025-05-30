@@ -9,8 +9,7 @@ export function parseGB7(buffer) {
 }
 
 export function renderGB7ToCanvas(canvas, parsed) {
-  const { width, height, pixels } = parsed;
-  let hasAlphaMask = false;
+  const { width, height, pixels, hasAlphaMask } = parsed;
   if (!width || !height || width <= 0 || height <= 0) {
     console.error("Некорректный размер GB7:", width, height);
     return { width: 0, height: 0 };
@@ -54,6 +53,11 @@ export function renderImageToCanvas(canvas, imageFile, callback) {
     const ctx = canvas.getContext("2d");
     canvas.width = img.width;
     canvas.height = img.height;
+    
+    // Clear canvas with transparent background
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw image preserving alpha channel
     ctx.drawImage(img, 0, 0);
 
     const imageData = ctx.getImageData(0, 0, img.width, img.height);

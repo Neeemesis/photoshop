@@ -5,16 +5,22 @@
     <input type="file" @change="onFileChange" accept=".gb7,.png,.jpg,.jpeg" />
     <div class="info" v-if="layers.length">
       <p><strong>Слои и альфа-каналы</strong></p>
-      <button style="margin-top: 6px;" @click="addColorLayer" :disabled="!canAddLayer">
-        Добавить слой
-      </button>
+      <div class="add-layer-controls">
+        <input type="color" v-model="newLayerColor" class="color-picker" title="Выбрать цвет слоя" />
+        <button style="margin-top: 0;" @click="addColorLayer" :disabled="!canAddLayer">
+          Добавить слой
+        </button>
+      </div>
 
       <ul class="layer-list">
-        <li v-for="(layer, index) in layers" :key="index" :class="{ active: index === activeLayerIndex }">
+        <li v-for="(layer, index) in [...layers].reverse()" :key="index"
+          :class="{ active: index === activeLayerIndex }">
+
           <div class="layer-header">
             <strong>{{ layer.name }}</strong>
-            <canvas class="preview" ref="previews" width="32" height="32"></canvas>
-
+            <canvas class="preview" ref="previews" width="32" height="32" willReadFrequently></canvas>
+            <canvas class="preview alpha" v-if="layer.alphaMask" ref="alphaPreviews" width="32" height="32"
+              title="Альфа-канал" willReadFrequently></canvas>
             <button @click="removeLayer(index)" title="Удалить слой">🗑️</button>
           </div>
           <div class="layer-controls">
@@ -35,6 +41,25 @@
               </select>
             </label>
 
+            <div class="alpha-controls" v-if="layer.alphaChannelDetected">
+              <label>
+                <input type="checkbox" v-model="layer.showAlpha" />
+                Показать альфа-канал
+              </label>
+              <button class="remove-alpha" @click="removeAlphaChannel(index)" title="Удалить альфа-канал">
+                Удалить альфа-канал
+              </button>
+            </div>
+
+            <div class="correction-controls">
+              <button @click="openGradationCorrection(index)" title="Градационная коррекция">
+                Градационная коррекция
+              </button>
+              <button @click="openImageFilter(index)" title="Фильтрация изображения">
+                Фильтрация
+              </button>
+            </div>
+
             <div class="btn-layer">
               <button @click="moveLayerUp(index)" :disabled="index === 0">🔼</button>
               <button @click="moveLayerDown(index)" :disabled="index === layers.length - 1">🔽</button>
@@ -45,17 +70,38 @@
       </ul>
     </div>
 
+    <GradationCorrection
+      v-if="showGradationDialog"
+      :visible="showGradationDialog"
+      :image-data="layers[activeLayerIndex]?.canvas.getContext('2d').getImageData(0, 0, layers[activeLayerIndex].canvas.width, layers[activeLayerIndex].canvas.height)"
+      :is-alpha-channel="layers[activeLayerIndex]?.showAlpha"
+      @preview="handleGradationPreview"
+      @apply="handleGradationApply"
+      @close="showGradationDialog = false"
+      @reset-preview="previewImageData = null"
+    />
+
+    <ImageFilter
+      v-if="showFilterDialog"
+      :visible="showFilterDialog"
+      :image-data="layers[activeLayerIndex]?.canvas.getContext('2d').getImageData(0, 0, layers[activeLayerIndex].canvas.width, layers[activeLayerIndex].canvas.height)"
+      :is-alpha-channel="layers[activeLayerIndex]?.showAlpha"
+      @preview="handleFilterPreview"
+      @apply="handleFilterApply"
+      @close="showFilterDialog = false"
+      @reset-preview="previewImageData = null"
+    />
 
     <div v-if="imageMeta" class="info info-image">
       <p><strong>Ширина:</strong> {{ imageMeta.width }} px</p>
       <p><strong>Высота:</strong> {{ imageMeta.height }} px</p>
       <p><strong>Глубина:</strong> {{ depthInfo }}</p>
-      <di class="btn-flex">
+      <div class="btn-flex">
         <button @click="download">Скачать PNG</button>
         <button class="scale" @click="openScaleDialog(imageMeta)" :disabled="!imageMeta">
           Масштабировать
         </button>
-      </di>
+      </div>
 
 
     </div>
@@ -123,10 +169,15 @@ import {
   renderImageToCanvas,
 } from "../utils/imageProcessor";
 import { rgbToXyz, xyzToLab, contrastRatio } from "../utils/colorUtils";
-
+import GradationCorrection from './GradationCorrection.vue';
+import ImageFilter from './ImageFilter.vue';
 
 export default {
   name: "EditorSidebar",
+  components: {
+    GradationCorrection,
+    ImageFilter
+  },
   props: {
     visible: Boolean,
     getCanvas: Function,
@@ -140,6 +191,10 @@ export default {
       imageMeta: null,
       layers: [],
       newLayerColor: "#ff0000",
+      showGradationDialog: false,
+      showFilterDialog: false,
+      activeLayerIndex: -1,
+      previewImageData: null,
       blendModes: [
         {
           label: "Обычный",
@@ -196,7 +251,7 @@ export default {
       layerCanvas.width = width;
       layerCanvas.height = height;
 
-      const ctx = layerCanvas.getContext("2d");
+      const ctx = layerCanvas.getContext("2d", { willReadFrequently: true });
       ctx.fillStyle = this.newLayerColor;
       ctx.fillRect(0, 0, width, height);
 
@@ -207,6 +262,9 @@ export default {
         visible: true,
         opacity: 1,
         blendMode: "normal",
+        alphaChannelDetected: false,
+        showAlpha: false,
+        alphaPreview: null
       });
 
       this.renderLayersToMainCanvas();
@@ -229,8 +287,34 @@ export default {
         const layerCanvas = document.createElement("canvas");
         layerCanvas.width = meta.width;
         layerCanvas.height = meta.height;
-        const ctx = layerCanvas.getContext("2d");
+        const ctx = layerCanvas.getContext("2d", { willReadFrequently: true });
         ctx.drawImage(canvas, 0, 0);
+
+        // Create alpha preview if there's an alpha channel
+        let alphaMask = null;
+        if (meta.alphaChannelDetected) {
+          const imageData = ctx.getImageData(0, 0, meta.width, meta.height);
+          const data = imageData.data;
+          
+          const alphaCanvas = document.createElement('canvas');
+          alphaCanvas.width = meta.width;
+          alphaCanvas.height = meta.height;
+          const alphaCtx = alphaCanvas.getContext('2d', { willReadFrequently: true });
+          
+          const alphaImageData = alphaCtx.createImageData(meta.width, meta.height);
+          const alphaData = alphaImageData.data;
+          
+          for (let i = 0; i < data.length; i += 4) {
+            const alpha = data[i + 3];
+            alphaData[i] = alpha;     // R
+            alphaData[i + 1] = alpha; // G
+            alphaData[i + 2] = alpha; // B
+            alphaData[i + 3] = 255;   // A
+          }
+          
+          alphaCtx.putImageData(alphaImageData, 0, 0);
+          alphaMask = alphaCanvas;
+        }
 
         this.layers.push({
           name: `Слой ${this.layers.length + 1}`,
@@ -238,6 +322,9 @@ export default {
           visible: true,
           opacity: 1,
           blendMode: "normal",
+          alphaChannelDetected: meta.alphaChannelDetected,
+          showAlpha: meta.alphaChannelDetected,
+          alphaMask: alphaMask
         });
 
         this.renderLayersToMainCanvas();
@@ -266,29 +353,88 @@ export default {
     renderLayersToMainCanvas() {
       const canvas = this.getCanvas();
       if (!canvas) return;
-      const ctx = canvas.getContext("2d");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
+      // Clear canvas with transparent background
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Reset composite operation and alpha
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
 
-      const blendModeMap = {
-        normal: "source-over",
-        multiply: "multiply",
-        screen: "screen",
-        overlay: "overlay"
-      };
+      // Create a temporary canvas for compositing
+      const tempCanvas = document.createElement("canvas");
+      tempCanvas.width = canvas.width;
+      tempCanvas.height = canvas.height;
+      const tempCtx = tempCanvas.getContext("2d", { willReadFrequently: true });
+
+      // Create a background canvas for blend modes
+      const bgCanvas = document.createElement("canvas");
+      bgCanvas.width = canvas.width;
+      bgCanvas.height = canvas.height;
+      const bgCtx = bgCanvas.getContext("2d", { willReadFrequently: true });
 
       for (const layer of this.layers) {
         if (!layer.visible) continue;
 
-        ctx.globalAlpha = layer.opacity;
-        ctx.globalCompositeOperation = blendModeMap[layer.blendMode] || "source-over";
-        ctx.drawImage(layer.canvas, 0, 0);
+        // Clear temporary canvas
+        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+        
+        // Draw layer to temporary canvas
+        tempCtx.globalAlpha = layer.opacity;
+        
+        if (layer.alphaChannelDetected && layer.showAlpha) {
+          // If showing alpha channel, create a checkerboard pattern
+          const pattern = this.createCheckerboardPattern(tempCtx);
+          tempCtx.fillStyle = pattern;
+          tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        }
+        
+        tempCtx.drawImage(layer.canvas, 0, 0);
+
+        // Apply blend mode
+        switch (layer.blendMode) {
+          case 'multiply':
+            ctx.globalCompositeOperation = 'multiply';
+            break;
+          case 'screen':
+            ctx.globalCompositeOperation = 'screen';
+            break;
+          case 'overlay':
+            // Для overlay нам нужно сначала нарисовать на фоновом канвасе
+            bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+            bgCtx.drawImage(canvas, 0, 0);
+            
+            // Затем применить overlay эффект
+            ctx.globalCompositeOperation = 'overlay';
+            break;
+          default:
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        // Composite temporary canvas onto main canvas
+        ctx.drawImage(tempCanvas, 0, 0);
       }
 
+      // Reset composite operation and alpha
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
+    },
+    createCheckerboardPattern(ctx) {
+      const size = 8;
+      const patternCanvas = document.createElement('canvas');
+      patternCanvas.width = size * 2;
+      patternCanvas.height = size * 2;
+      const patternCtx = patternCanvas.getContext('2d', { willReadFrequently: true });
+      
+      // Draw checkerboard pattern
+      patternCtx.fillStyle = '#ffffff';
+      patternCtx.fillRect(0, 0, size * 2, size * 2);
+      patternCtx.fillStyle = '#cccccc';
+      patternCtx.fillRect(0, 0, size, size);
+      patternCtx.fillRect(size, size, size, size);
+      
+      return ctx.createPattern(patternCanvas, 'repeat');
     },
     download() {
       const canvas = this.getCanvas();
@@ -341,42 +487,150 @@ export default {
       this.activeLayerIndex = index;
     },
     removeLayer(index) {
-      this.layers.splice(index, 1);
+      // Преобразуем индекс из отображаемого порядка в реальный
+      const realIndex = this.layers.length - 1 - index;
+      this.layers.splice(realIndex, 1);
+      
+      // Обновляем активный слой
       if (this.activeLayerIndex >= this.layers.length) {
         this.activeLayerIndex = this.layers.length - 1;
+      } else if (this.activeLayerIndex > realIndex) {
+        this.activeLayerIndex--;
       }
     },
     moveLayerUp(index) {
-      if (index === 0) return;
-      const temp = this.layers[index - 1];
-      this.layers[index - 1] = this.layers[index];
-      this.layers[index] = temp;
-      this.activeLayerIndex = index - 1;
+      // Преобразуем индекс из отображаемого порядка в реальный
+      const realIndex = this.layers.length - 1 - index;
+      if (realIndex === this.layers.length - 1) return;
+      
+      const temp = this.layers[realIndex + 1];
+      this.layers[realIndex + 1] = this.layers[realIndex];
+      this.layers[realIndex] = temp;
+      
+      // Обновляем активный слой
+      this.activeLayerIndex = this.layers.length - 1 - (realIndex + 1);
     },
     moveLayerDown(index) {
-      if (index === this.layers.length - 1) return;
-      const temp = this.layers[index + 1];
-      this.layers[index + 1] = this.layers[index];
-      this.layers[index] = temp;
-      this.activeLayerIndex = index + 1;
+      // Преобразуем индекс из отображаемого порядка в реальный
+      const realIndex = this.layers.length - 1 - index;
+      if (realIndex === 0) return;
+      
+      const temp = this.layers[realIndex - 1];
+      this.layers[realIndex - 1] = this.layers[realIndex];
+      this.layers[realIndex] = temp;
+      
+      // Обновляем активный слой
+      this.activeLayerIndex = this.layers.length - 1 - (realIndex - 1);
+    },
+    removeAlphaChannel(index) {
+      const layer = this.layers[index];
+      const canvas = layer.canvas;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      
+      // Create a new canvas for the alpha channel preview
+      const alphaCanvas = document.createElement('canvas');
+      alphaCanvas.width = canvas.width;
+      alphaCanvas.height = canvas.height;
+      const alphaCtx = alphaCanvas.getContext('2d', { willReadFrequently: true });
+      
+      // Copy the alpha channel to the preview canvas
+      const alphaImageData = alphaCtx.createImageData(canvas.width, canvas.height);
+      const alphaData = alphaImageData.data;
+      
+      // Store alpha channel and make original fully opaque
+      for (let i = 0; i < data.length; i += 4) {
+        // Store alpha value in preview
+        const alpha = data[i + 3];
+        alphaData[i] = alpha;     // R
+        alphaData[i + 1] = alpha; // G
+        alphaData[i + 2] = alpha; // B
+        alphaData[i + 3] = 255;   // A
+        
+        // Make original fully opaque
+        data[i + 3] = 255;
+      }
+      
+      // Update both canvases
+      alphaCtx.putImageData(alphaImageData, 0, 0);
+      ctx.putImageData(imageData, 0, 0);
+      
+      // Store the alpha preview
+      layer.alphaMask = alphaCanvas;
+      layer.alphaChannelDetected = false;
+      layer.showAlpha = false;
+      
+      this.renderLayersToMainCanvas();
+    },
+    openGradationCorrection(index) {
+      this.activeLayerIndex = index;
+      this.showGradationDialog = true;
+    },
+    openImageFilter(index) {
+      this.activeLayerIndex = index;
+      this.showFilterDialog = true;
+    },
+    handleGradationPreview(imageData) {
+      this.previewImageData = imageData;
+      this.updateLayerPreview(this.activeLayerIndex, imageData);
+    },
+    handleGradationApply(imageData) {
+      if (imageData) {
+        const layer = this.layers[this.activeLayerIndex];
+        const ctx = layer.canvas.getContext('2d');
+        ctx.putImageData(imageData, 0, 0);
+        this.previewImageData = null;
+        this.renderLayersToMainCanvas();
+      }
+    },
+    handleFilterPreview(imageData) {
+      this.previewImageData = imageData;
+      this.updateLayerPreview(this.activeLayerIndex, imageData);
+    },
+    handleFilterApply(imageData) {
+      if (imageData) {
+        const layer = this.layers[this.activeLayerIndex];
+        const ctx = layer.canvas.getContext('2d');
+        ctx.putImageData(imageData, 0, 0);
+        this.previewImageData = null;
+        this.renderLayersToMainCanvas();
+        this.showFilterDialog = false;
+      }
+    },
+    updateLayerPreview(index, imageData) {
+      const layer = this.layers[index];
+      const ctx = layer.canvas.getContext('2d');
+      ctx.putImageData(imageData, 0, 0);
+      this.renderLayersToMainCanvas();
     },
   },
   updated() {
-    if (!this.$refs.previews) return;
-
     const previews = Array.isArray(this.$refs.previews)
       ? this.$refs.previews
       : [this.$refs.previews];
 
-    this.layers.forEach((layer, index) => {
+    const alphaPreviews = Array.isArray(this.$refs.alphaPreviews)
+      ? this.$refs.alphaPreviews
+      : [this.$refs.alphaPreviews];
+
+    [...this.layers].reverse().forEach((layer, index) => {
       const preview = previews[index];
       if (preview && preview.getContext) {
         const ctx = preview.getContext("2d");
         ctx.clearRect(0, 0, preview.width, preview.height);
         ctx.drawImage(layer.canvas, 0, 0, preview.width, preview.height);
       }
+
+      const alphaCanvas = alphaPreviews[index];
+      if (layer.alphaMask && alphaCanvas && alphaCanvas.getContext) {
+        const ctx = alphaCanvas.getContext("2d");
+        ctx.clearRect(0, 0, alphaCanvas.width, alphaCanvas.height);
+        ctx.drawImage(layer.alphaMask, 0, 0, alphaCanvas.width, alphaCanvas.height);
+      }
     });
   },
+
 
   watch: {
     layers: {
@@ -402,9 +656,10 @@ export default {
   z-index: 999;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 16px;
   font-family: "Segoe UI", Roboto, sans-serif;
   border-left: 1px solid #ddd;
+  overflow-y: auto;
 }
 
 h2 {
@@ -459,7 +714,7 @@ button.scale:hover:not(:disabled) {
   border: 1px solid #e0e0e0;
   font-size: 14px;
   color: #333;
-
+  margin-bottom: 16px;
 }
 
 .info p {
@@ -506,6 +761,7 @@ button.scale:hover:not(:disabled) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-bottom: 16px;
 }
 
 .layer-list li {
@@ -525,18 +781,20 @@ button.scale:hover:not(:disabled) {
   justify-content: space-between;
   align-items: center;
   font-weight: bold;
+  margin-bottom: 8px;
 }
 
 .layer-controls {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   font-size: 13px;
 }
 
 .info-image {
-  position: absolute;
-  left: -190px;
+  position: relative;
+  left: 0;
+  margin-top: 16px;
 }
 
 .color-table {
@@ -570,27 +828,82 @@ button.scale:hover:not(:disabled) {
   justify-content: space-between;
   margin-top: 12px;
   flex-direction: column;
+  gap: 8px;
 }
 
 .btn-layer {
   display: flex;
   align-items: center;
   justify-content: space-around;
+  margin-top: 8px;
 }
 
-.blend-tooltip {
+.remove-alpha {
+  background-color: #dc3545;
   font-size: 12px;
-  color: #555;
-  margin-top: 4px;
-  background: #f9f9f9;
-  padding: 6px 8px;
-  border-radius: 4px;
-  border: 1px solid #ccc;
+  padding: 4px 8px;
 }
+
+.remove-alpha:hover {
+  background-color: #c82333;
+}
+
 .select {
   border: #d90000 1px solid;
   padding: 1px;
   border-radius: 8px;
 }
-</style>
 
+/* Добавляем отступ для последнего элемента, чтобы избежать наложения с нижней панелью */
+.sidebar > *:last-child {
+  margin-bottom: 24px;
+}
+
+.add-layer-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.color-picker {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  cursor: pointer;
+  background: none;
+}
+
+.color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.color-picker::-moz-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.correction-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.correction-controls button {
+  flex: 1;
+  font-size: 12px;
+  padding: 4px 8px;
+  background-color: #6c757d;
+}
+
+.correction-controls button:hover {
+  background-color: #5a6268;
+}
+</style>

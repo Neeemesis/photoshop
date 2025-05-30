@@ -1,11 +1,19 @@
 import { createApp } from 'vue'
 import App from './App.vue'
+import { createPinia } from 'pinia'
 import VTooltip from 'v-tooltip';
-import Vuetify from 'vuetify'
+import { createVuetify } from 'vuetify'
 import 'vuetify/styles'
 
-const app = createApp(App)
+// Настройка feature flags для Vue
+window.__VUE_PROD_HYDRATION_MISMATCH_DETAILS__ = false
+window.__VUE_PROD_DEVTOOLS__ = false
 
-app.use(Vuetify)
-app.use(VTooltip);
+const app = createApp(App)
+const pinia = createPinia()
+const vuetify = createVuetify()
+
+app.use(pinia)
+app.use(vuetify)
+app.use(VTooltip)
 app.mount('#app')

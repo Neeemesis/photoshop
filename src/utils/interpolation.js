@@ -11,7 +11,12 @@ export function nearestNeighbor(srcData, srcW, srcH, dstW, dstH) {
       const srcY = Math.floor(j * yRatio);
       const srcIdx = (srcY * srcW + srcX) * 4;
       const dstIdx = (j * dstW + i) * 4;
-      dstData.set(srcData.slice(srcIdx, srcIdx + 4), dstIdx);
+      
+      // Copy all channels including alpha
+      dstData[dstIdx] = srcData[srcIdx];         // R
+      dstData[dstIdx + 1] = srcData[srcIdx + 1]; // G
+      dstData[dstIdx + 2] = srcData[srcIdx + 2]; // B
+      dstData[dstIdx + 3] = srcData[srcIdx + 3]; // A
     }
   }
 
@@ -35,6 +40,7 @@ export function bilinear(srcData, srcW, srcH, dstW, dstH) {
       const dx = x - x1;
       const dy = y - y1;
 
+      // Interpolate each channel including alpha
       for (let c = 0; c < 4; c++) {
         const v1 = srcData[(y1 * srcW + x1) * 4 + c];
         const v2 = srcData[(y1 * srcW + x2) * 4 + c];
